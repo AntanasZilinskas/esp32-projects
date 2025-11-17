@@ -1,0 +1,17 @@
+{
+  "floor1": [],
+  "floor2": [
+    {
+      "timestamp": "2025-11-15T22:47:35.673561",
+      "location": {
+        "x": 395.64,
+        "y": 460.7
+      },
+      "speeds": {
+        "download_mbps": 45.2,
+        "upload_mbps": 12.53,
+        "ping_ms": 10.44
+      }
+    }
+  ]
+}
