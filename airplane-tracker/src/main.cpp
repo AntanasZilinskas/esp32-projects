@@ -68,6 +68,8 @@ const unsigned long DISPLAY_ROTATION_INTERVAL = 5000; // 5 seconds per aircraft
 int radarAngle = 0;
 bool isScanning = false;
 unsigned long scanStartTime = 0;
+bool rateLimited = false;
+unsigned long rateLimitTime = 0;
 
 // Forward declarations
 void setupWebServer();
@@ -113,8 +115,25 @@ void setup() {
   // Connect to WiFi
   Serial.print("Connecting to WiFi: ");
   Serial.println(WIFI_SSID);
-  
+
   WiFi.mode(WIFI_STA);
+
+  // Configure static IP if enabled
+  if(USE_STATIC_IP) {
+    IPAddress local_IP, gateway, subnet, primaryDNS;
+    local_IP.fromString(STATIC_IP);
+    gateway.fromString(GATEWAY);
+    subnet.fromString(SUBNET);
+    primaryDNS.fromString(DNS_PRIMARY);
+
+    if (!WiFi.config(local_IP, gateway, subnet, primaryDNS)) {
+      Serial.println("Static IP configuration failed");
+    } else {
+      Serial.print("Static IP configured: ");
+      Serial.println(STATIC_IP);
+    }
+  }
+
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   int attempts = 0;
@@ -574,8 +593,11 @@ void updateAircraftData() {
                "&lomax=" + String(maxLon, 4);
   
   Serial.println("API URL: " + url);
-  
+
   http.begin(url);
+  // Authentication disabled - using free anonymous API
+  // Uncomment below to enable authentication when credentials work:
+  // http.setAuthorization(OPENSKY_USERNAME, OPENSKY_PASSWORD);
   int httpCode = http.GET();
   
   if(httpCode == 200) {
@@ -671,6 +693,8 @@ void updateAircraftData() {
     Serial.printf("[OpenSky] HTTP error: %d\n", httpCode);
     if(httpCode == 429) {
       Serial.println("Rate limited - will retry later");
+      rateLimited = true;
+      rateLimitTime = millis();
     }
   }
   
@@ -714,16 +738,24 @@ void drawRadarScan(int angle) {
   // Draw center dot
   display.fillCircle(centerX, centerY, 2, SSD1306_WHITE);
 
-  // Range info (bottom) - now shows current search radius
+  // Range info or rate limit warning
   display.setTextSize(1);
   display.setCursor(0, 56);
-  display.print(F("Range: "));
-  if(currentSearchRadius >= 1.0) {
-    display.print((int)currentSearchRadius);
-    display.print(F("km"));
+
+  if(rateLimited && (millis() - rateLimitTime < 300000)) { // Show for 5 minutes
+    display.print(F("RATE LIMITED"));
   } else {
-    display.print((int)(currentSearchRadius * 1000));
-    display.print(F("m"));
+    rateLimited = false; // Clear flag after 5 minutes
+    display.print(F("Range: "));
+    float nauticalMiles = currentSearchRadius * 0.539957; // km to nm
+    if(nauticalMiles >= 1.0) {
+      display.print((int)nauticalMiles);
+      display.print(F("nm"));
+    } else {
+      // For very small ranges, show in feet
+      display.print((int)(currentSearchRadius * 3280.84));
+      display.print(F("ft"));
+    }
   }
 
   display.display();
@@ -755,10 +787,13 @@ void drawSummary() {
     display.println(F("detected"));
     display.println();
     display.print(F("Range "));
-    display.print(currentSearchRadius, 0);
-    display.println(F("km"));
+    float nm = currentSearchRadius * 0.539957; // km to nm
+    display.print((int)nm, 0);
+    display.println(F("nm"));
     display.print(F("Alt: "));
-    display.print(formatAltitude(currentMaxAltitude));
+    int altFt = (int)(currentMaxAltitude * 3.28084); // m to ft
+    display.print(altFt);
+    display.print(F("ft"));
   } else {
     // Aircraft count
     display.setCursor(0, 12);
